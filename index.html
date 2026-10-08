@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>無音・フィラーカット</title>
+<style>
+:root {
+  --bg: #f6f6f4; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e2e2dc;
+  --accent: #2f6fed; --accent-weak: #e6eefe;
+  --silence: rgba(220, 70, 60, .28); --silence-solid: #dc463c;
+  --filler: rgba(240, 150, 30, .35); --filler-solid: #e08a10;
+  --off: rgba(120, 120, 120, .12); --wave: #9aa4b2; --head: #111;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615; --panel: #1f1f1d; --text: #ecece8; --muted: #9b9b94; --line: #33332f;
+    --accent: #6c9bff; --accent-weak: #1e2a44; --wave: #5d6673; --head: #fff; --off: rgba(200,200,200,.10);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161615; --panel: #1f1f1d; --text: #ecece8; --muted: #9b9b94; --line: #33332f;
+  --accent: #6c9bff; --accent-weak: #1e2a44; --wave: #5d6673; --head: #fff; --off: rgba(200,200,200,.10);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0 0 20px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.panel h2 { font-size: 15px; margin: 0 0 12px; }
+#drop { border: 2px dashed var(--line); border-radius: 10px; padding: 36px 16px; text-align: center; cursor: pointer; }
+#drop.over { border-color: var(--accent); background: var(--accent-weak); }
+#drop strong { display: block; font-size: 16px; margin-bottom: 4px; }
+button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: .45; cursor: default; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px 20px; }
+label.ctl { display: block; }
+label.ctl span { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; }
+label.ctl span b { color: var(--text); font-weight: 600; }
+input[type=range] { width: 100%; }
+video { width: 100%; max-height: 420px; background: #000; border-radius: 8px; display: block; }
+#scroller { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; margin-top: 12px; }
+#timeline { display: block; height: 120px; cursor: pointer; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; }
+.stats { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 12px; }
+.stats div { font-size: 13px; color: var(--muted); }
+.stats b { display: block; font-size: 20px; color: var(--text); }
+.status { font-size: 13px; color: var(--muted); min-height: 1.6em; }
+progress { width: 100%; height: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--panel); }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--accent-weak); }
+tr.disabled td { color: var(--muted); text-decoration: line-through; }
+tr.disabled td:first-child { text-decoration: none; }
+.tag { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 12px; color: #fff; }
+.tag.silence { background: var(--silence-solid); }
+.tag.filler { background: var(--filler-solid); }
+.tablewrap { max-height: 360px; overflow-y: auto; }
+.note { font-size: 12px; color: var(--muted); }
+.hidden { display: none !important; }
+#transcript { font-size: 13px; line-height: 1.9; max-height: 200px; overflow-y: auto; }
+#transcript mark { background: var(--filler); color: inherit; border-radius: 3px; padding: 0 2px; }
+@media (max-width: 600px) { .stats { gap: 14px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>無音・フィラーカット</h1>
+  <p class="sub">動画を読み込むと無音部分を自動で検出します。「えー」「あのー」などのフィラーもAIで検出できます。処理はすべてこのブラウザ内で行い、動画はどこにも送信されません。</p>
+
+  <div class="panel" id="loadPanel">
+    <div id="drop">
+      <strong>ここに動画をドロップ</strong>
+      <span class="note">またはクリックして選択（mp4 / mov / webm / m4a など）</span>
+      <input type="file" id="file" accept="video/*,audio/*" class="hidden">
+    </div>
+    <p class="note" style="margin:10px 0 0">推奨ブラウザ：Google Chrome（Mac / Windows）。Safariではmp4の書き出しができない場合があります。</p>
+  </div>
+
+  <div id="work" class="hidden">
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;margin-bottom:10px">
+        <h2 id="fileName" style="margin:0"></h2>
+        <button id="reset">別のファイルを開く</button>
+      </div>
+      <video id="video" controls playsinline></video>
+      <div class="row" style="margin-top:10px">
+        <button id="previewBtn">▶ カット後をプレビュー</button>
+        <label class="row" style="gap:6px"><input type="checkbox" id="skipToggle" checked> 再生時にカット部分を飛ばす</label>
+      </div>
+      <div id="scroller"><canvas id="timeline"></canvas></div>
+      <div class="row" style="margin-top:8px">
+        <label class="ctl" style="flex:1;min-width:200px"><span>表示の拡大 <b id="zoomVal"></b></span>
+          <input type="range" id="zoom" min="5" max="200" value="20"></label>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--silence)"></i>無音（カット）</span>
+        <span><i style="background:var(--filler)"></i>フィラー（カット）</span>
+        <span><i style="background:var(--off);border:1px dashed var(--muted)"></i>残す（クリックで切替）</span>
+        <span>波形をクリック：その位置へ移動／色の部分をクリック：カットのON・OFF</span>
+      </div>
+      <div class="stats">
+        <div>元の長さ<b id="statOrig">-</b></div>
+        <div>カット後<b id="statNew">-</b></div>
+        <div>削減<b id="statCut">-</b></div>
+        <div>カット箇所<b id="statCount">-</b></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>無音の検出設定</h2>
+      <div class="grid">
+        <label class="ctl"><span>無音とみなす音量 <b id="thVal"></b></span>
+          <input type="range" id="th" min="-70" max="-15" step="1"></label>
+        <label class="ctl"><span>この長さ以上の無音をカット <b id="minVal"></b></span>
+          <input type="range" id="minSil" min="0.2" max="3" step="0.05" value="0.6"></label>
+        <label class="ctl"><span>話の前後に残す余白 <b id="padVal"></b></span>
+          <input type="range" id="pad" min="0" max="0.5" step="0.01" value="0.12"></label>
+      </div>
+      <p class="note">カットが多すぎて話が詰まって聞こえる → 「長さ」を伸ばすか「余白」を増やす。話し声まで切れる → 「音量」を下げる（左へ）。</p>
+    </div>
+
+    <div class="panel">
+      <h2>フィラーの検出（AI・試験運用）</h2>
+      <div class="row">
+        <button id="fillerBtn" class="primary">フィラーを検出する</button>
+        <label class="row" style="gap:6px">精度
+          <select id="model">
+            <option value="onnx-community/whisper-base_timestamped">標準（約150MB・速い）</option>
+            <option value="onnx-community/whisper-small_timestamped">高精度（約500MB・遅い）</option>
+          </select>
+        </label>
+      </div>
+      <p class="note">初回はAIモデルのダウンロードに時間がかかります（2回目以降はブラウザに保存されます）。検出漏れ・誤検出があるので、下の一覧で確認してから書き出してください。</p>
+      <div id="fillerStatus" class="status"></div>
+      <progress id="fillerProg" class="hidden" max="1" value="0"></progress>
+      <div id="transcriptWrap" class="hidden">
+        <p class="note" style="margin:10px 0 4px">文字起こし（黄色＝フィラーとして検出）</p>
+        <div id="transcript"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <h2 style="margin:0">カット一覧</h2>
+        <div class="row">
+          <button id="allOn">すべてON</button>
+          <button id="allOff">すべてOFF</button>
+        </div>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>カット</th><th>#</th><th>開始</th><th>終了</th><th>長さ</th><th>種類</th><th>内容</th></tr></thead>
+          <tbody id="cutRows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>書き出し</h2>
+      <div class="row">
+        <button id="exportBtn" class="primary">カット済み動画を書き出す（mp4）</button>
+        <button id="csvBtn">カット一覧（CSV）</button>
+      </div>
+      <p class="note">書き出しは動画の長さと同程度〜数倍の時間がかかります。完了までこのタブを開いたままにしてください。</p>
+      <div id="exportStatus" class="status"></div>
+      <progress id="exportProg" class="hidden" max="1" value="0"></progress>
+    </div>
+  </div>
+</main>
+
+<script type="module">
+import {
+  Input, ALL_FORMATS, BlobSource, AudioSampleSink, VideoSampleSink,
+  Output, Mp4OutputFormat, BufferTarget, VideoSampleSource, AudioSampleSource,
+  AudioSample, QUALITY_HIGH, canEncodeVideo, canEncodeAudio,
+} from 'https://cdn.jsdelivr.net/npm/mediabunny@1.58.0/+esm';
+
+const TRANSFORMERS_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0/dist/transformers.min.js';
+const FRAME = 0.01;          // 音量計測の単位（秒）
+const ASR_RATE = 16000;      // Whisperの入力サンプルレート
+const FADE = 0.004;          // つなぎ目のプチノイズ防止フェード（秒）
+
+// 日本語フィラー辞書（記号・長音を正規化した後で照合）
+const FILLER_RE = /^(え+|えっ?と+|えーと|えと|あ+|あの+|あのね|その+|まあ*|ま+|う+ん*|ん+|うーん|お+|ええ+と?|なんか)$/;
+
+const $ = (id) => document.getElementById(id);
+const state = {
+  file: null, input: null, videoTrack: null, audioTrack: null, duration: 0,
+  db: null,                // Float32Array: FRAMEごとの音量(dB)
+  asr: null,               // Float32Array: 16kHzモノラル（フィラー検出用）
+  silenceCuts: [], fillerCuts: [], disabled: new Set(),
+  words: [], cuts: [], keeps: [],
+};
+
+// ---------- 読み込み ----------
+const drop = $('drop');
+drop.onclick = () => $('file').click();
+$('file').onchange = (e) => e.target.files[0] && openFile(e.target.files[0]);
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); e.dataTransfer.files[0] && openFile(e.dataTransfer.files[0]); };
+$('reset').onclick = () => location.reload();
+
+async function openFile(file) {
+  drop.querySelector('strong').textContent = '読み込み中…';
+  try {
+    state.file = file;
+    state.input = new Input({ formats: ALL_FORMATS, source: new BlobSource(file) });
+    state.videoTrack = await state.input.getPrimaryVideoTrack();
+    state.audioTrack = await state.input.getPrimaryAudioTrack();
+    if (!state.audioTrack) throw new Error('音声トラックがありません');
+    state.duration = await state.input.computeDuration();
+    await analyzeAudio((p) => { drop.querySelector('strong').textContent = `音声を解析中… ${Math.round(p * 100)}%`; });
+  } catch (err) {
+    console.error(err);
+    drop.querySelector('strong').textContent = '読み込めませんでした：' + err.message;
+    return;
+  }
+  $('video').src = URL.createObjectURL(file);
+  $('fileName').textContent = file.name;
+  $('loadPanel').classList.add('hidden');
+  $('work').classList.remove('hidden');
+  $('th').value = autoThreshold();
+  $('statOrig').textContent = fmtDur(state.duration);
+  recompute();
+}
+
+async function analyzeAudio(onProgress) {
+  const sink = new AudioSampleSink(state.audioTrack);
+  const dbList = [], asrChunks = [];
+  let sumSq = 0, count = 0, frameLen = 0;
+  let srcPos = 0, nextAsr = 0, asrStep = 0;   // 16kHzへの間引き用
+  let lastReport = 0;
+  for await (const sample of sink.samples()) {
+    const sr = sample.sampleRate, n = sample.numberOfFrames, ch = sample.numberOfChannels;
+    if (!frameLen) { frameLen = Math.round(sr * FRAME); asrStep = sr / ASR_RATE; }
+    const mono = new Float32Array(n);
+    const buf = new Float32Array(n);
+    for (let c = 0; c < ch; c++) {
+      sample.copyTo(buf, { planeIndex: c, format: 'f32-planar' });
+      for (let i = 0; i < n; i++) mono[i] += buf[i] / ch;
+    }
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const v = mono[i];
+      sumSq += v * v;
+      if (++count === frameLen) { dbList.push(10 * Math.log10(sumSq / count + 1e-12)); sumSq = 0; count = 0; }
+      while (nextAsr < srcPos + 1) { out.push(v); nextAsr += asrStep; }
+      srcPos++;
+    }
+    asrChunks.push(Float32Array.from(out));
+    const t = sample.timestamp + sample.duration;
+    sample.close();
+    if (t - lastReport > 5) { lastReport = t; onProgress(Math.min(1, t / state.duration)); }
+  }
+  state.db = Float32Array.from(dbList);
+  const total = asrChunks.reduce((a, c) => a + c.length, 0);
+  state.asr = new Float32Array(total);
+  let off = 0;
+  for (const c of asrChunks) { state.asr.set(c, off); off += c.length; }
+}
+
+// 背景ノイズの大きさから初期の閾値を推定する
+function autoThreshold() {
+  const sorted = Array.from(state.db).filter((v) => v > -100).sort((a, b) => a - b);
+  if (!sorted.length) return -40;
+  const floor = sorted[Math.floor(sorted.length * 0.1)];
+  const speech = sorted[Math.floor(sorted.length * 0.7)];
+  const th = floor + (speech - floor) * 0.3;
+  return Math.round(Math.max(-60, Math.min(-25, th)));
+}
+
+// ---------- 検出 ----------
+function detectSilence() {
+  const th = +$('th').value, minSil = +$('minSil').value, pad = +$('pad').value;
+  const cuts = [];
+  let start = -1;
+  const db = state.db;
+  for (let i = 0; i <= db.length; i++) {
+    const silent = i < db.length && db[i] < th;
+    if (silent && start < 0) start = i;
+    if (!silent && start >= 0) {
+      const s = start * FRAME, e = Math.min(i * FRAME, state.duration);
+      if (e - s >= minSil) {
+        const cs = s === 0 ? 0 : s + pad;
+        const ce = e >= state.duration - FRAME ? state.duration : e - pad;
+        if (ce - cs > 0.05) cuts.push({ start: cs, end: ce, type: 'silence', text: '' });
+      }
+      start = -1;
+    }
+  }
+  return cuts;
+}
+
+function recompute() {
+  $('thVal').textContent = `${$('th').value} dB`;
+  $('minVal').textContent = `${(+$('minSil').value).toFixed(2)} 秒`;
+  $('padVal').textContent = `${(+$('pad').value).toFixed(2)} 秒`;
+  state.silenceCuts = detectSilence();
+  state.cuts = [...state.silenceCuts, ...state.fillerCuts].sort((a, b) => a.start - b.start);
+  state.cuts.forEach((c) => { c.key = `${c.type}:${c.start.toFixed(2)}`; c.enabled = !state.disabled.has(c.key); });
+  state.keeps = computeKeeps();
+  renderStats();
+  renderRows();
+  drawTimeline();
+}
+for (const id of ['th', 'minSil', 'pad']) $(id).oninput = recompute;
+
+// 有効なカットを合成して「残す区間」を求める
+function computeKeeps() {
+  const on = state.cuts.filter((c) => c.enabled).map((c) => [c.start, c.end]).sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const [s, e] of on) {
+    const last = merged[merged.length - 1];
+    if (last && s <= last[1] + 0.02) last[1] = Math.max(last[1], e);
+    else merged.push([s, e]);
+  }
+  const keeps = [];
+  let pos = 0;
+  for (const [s, e] of merged) {
+    if (s - pos > 0.05) keeps.push([pos, s]);
+    pos = Math.max(pos, e);
+  }
+  if (state.duration - pos > 0.05) keeps.push([pos, state.duration]);
+  state.merged = merged;
+  return keeps;
+}
+
+// ---------- フィラー検出（Whisper） ----------
+let asrPipe = null, asrModel = null;
+$('fillerBtn').onclick = async () => {
+  const btn = $('fillerBtn'), status = $('fillerStatus'), prog = $('fillerProg');
+  btn.disabled = true;
+  prog.classList.remove('hidden');
+  try {
+    const modelId = $('model').value;
+    if (!asrPipe || asrModel !== modelId) {
+      status.textContent = 'AIモデルを準備中…';
+      const { pipeline } = await import(TRANSFORMERS_URL);
+      const device = navigator.gpu && (await navigator.gpu.requestAdapter().catch(() => null)) ? 'webgpu' : 'wasm';
+      const files = {};
+      asrPipe = await pipeline('automatic-speech-recognition', modelId, {
+        device,
+        dtype: device === 'webgpu' ? { encoder_model: 'fp32', decoder_model_merged: 'q4' } : 'q8',
+        progress_callback: (p) => {
+          if (p.status === 'progress' && p.total) {
+            files[p.file] = [p.loaded, p.total];
+            const v = Object.values(files), loaded = v.reduce((a, x) => a + x[0], 0), total = v.reduce((a, x) => a + x[1], 0);
+            prog.value = loaded / total;
+            status.textContent = `AIモデルをダウンロード中… ${(loaded / 1e6).toFixed(0)} / ${(total / 1e6).toFixed(0)} MB`;
+          }
+        },
+      });
+      asrModel = modelId;
+    }
+    // 30秒ずつ区切って文字起こし（進捗を出すため）
+    const words = [];
+    const step = 30 * ASR_RATE, totalLen = state.asr.length;
+    for (let off = 0; off < totalLen; off += step) {
+      prog.value = off / totalLen;
+      status.textContent = `文字起こし中… ${fmtTime(off / ASR_RATE)} / ${fmtTime(totalLen / ASR_RATE)}`;
+      const slice = state.asr.subarray(off, Math.min(totalLen, off + step));
+      if (rms(slice) < 1e-4) continue;
+      const res = await asrPipe(slice, { language: 'japanese', task: 'transcribe', return_timestamps: 'word' });
+      for (const w of res.chunks || []) {
+        const [s, e] = w.timestamp;
+        if (s == null) continue;
+        words.push({ text: w.text, start: off / ASR_RATE + s, end: off / ASR_RATE + (e ?? s + 0.3) });
+      }
+    }
+    state.words = words;
+    state.fillerCuts = findFillers(words);
+    prog.value = 1;
+    status.textContent = `完了：フィラー ${state.fillerCuts.length} 箇所を検出しました。`;
+    renderTranscript();
+    recompute();
+  } catch (err) {
+    console.error(err);
+    status.textContent = 'フィラー検出に失敗しました：' + err.message;
+  } finally {
+    btn.disabled = false;
+    prog.classList.add('hidden');
+  }
+};
+
+function rms(a) { let s = 0; for (let i = 0; i < a.length; i += 16) s += a[i] * a[i]; return Math.sqrt(s / (a.length / 16)); }
+
+function normalize(t) {
+  return t.replace(/[\s、。，．,.!?！？「」『』…・〜~]/g, '').replace(/ー+/g, '').replace(/ッ$/, '')
+    .replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+}
+
+// Whisperの単語は日本語だと1〜数文字に分かれるため、隣接1〜3語の連結でも照合する
+function findFillers(words) {
+  const cuts = [];
+  for (let i = 0; i < words.length; i++) {
+    for (let len = 3; len >= 1; len--) {
+      if (i + len > words.length) continue;
+      const group = words.slice(i, i + len);
+      const text = group.map((w) => w.text).join('');
+      const norm = normalize(text);
+      if (!norm || !FILLER_RE.test(norm)) continue;
+      // 前後の語とくっついている場合（「あの人」の「あの」等）は誤検出になりやすいので除外
+      const next = words[i + len];
+      if (/^(あの|その)$/.test(norm) && next && !/^[\s、。,.]/.test(next.text) && next.start - group[len - 1].end < 0.15) continue;
+      cuts.push({ start: group[0].start, end: group[len - 1].end, type: 'filler', text: text.trim() });
+      i += len - 1;
+      break;
+    }
+  }
+  return cuts;
+}
+
+function renderTranscript() {
+  const fillerStarts = new Set(state.fillerCuts.map((c) => c.start));
+  const fillerRanges = state.fillerCuts.map((c) => [c.start, c.end]);
+  const html = state.words.map((w) => {
+    const isF = fillerRanges.some(([s, e]) => w.start >= s - 1e-6 && w.end <= e + 1e-6);
+    const t = escapeHtml(w.text);
+    return isF ? `<mark>${t}</mark>` : t;
+  }).join('');
+  $('transcript').innerHTML = html || '（音声が検出されませんでした）';
+  $('transcriptWrap').classList.remove('hidden');
+}
+
+// ---------- 表示 ----------
+function renderStats() {
+  const kept = state.keeps.reduce((a, [s, e]) => a + (e - s), 0);
+  $('statNew').textContent = fmtDur(kept);
+  $('statCut').textContent = `${fmtDur(state.duration - kept)}（${Math.round((1 - kept / state.duration) * 100)}%）`;
+  $('statCount').textContent = `${state.cuts.filter((c) => c.enabled).length} / ${state.cuts.length}`;
+}
+
+function renderRows() {
+  const tb = $('cutRows');
+  tb.innerHTML = '';
+  state.cuts.forEach((c, i) => {
+    const tr = document.createElement('tr');
+    if (!c.enabled) tr.className = 'disabled';
+    tr.innerHTML = `<td><input type="checkbox" ${c.enabled ? 'checked' : ''}></td><td>${i + 1}</td>
+      <td>${fmtTime(c.start)}</td><td>${fmtTime(c.end)}</td><td>${(c.end - c.start).toFixed(2)}秒</td>
+      <td><span class="tag ${c.type}">${c.type === 'silence' ? '無音' : 'フィラー'}</span></td><td>${escapeHtml(c.text)}</td>`;
+    tr.querySelector('input').onclick = (e) => { e.stopPropagation(); toggleCut(c); };
+    tr.onclick = () => { const v = $('video'); v.currentTime = Math.max(0, c.start - 1.5); v.play(); };
+    tb.appendChild(tr);
+  });
+}
+
+function toggleCut(c) {
+  if (state.disabled.has(c.key)) state.disabled.delete(c.key); else state.disabled.add(c.key);
+  recompute();
+}
+$('allOn').onclick = () => { state.disabled.clear(); recompute(); };
+$('allOff').onclick = () => { state.cuts.forEach((c) => state.disabled.add(c.key)); recompute(); };
+
+const canvas = $('timeline');
+function pxPerSec() { return +$('zoom').value; }
+$('zoom').oninput = () => drawTimeline();
+function drawTimeline() {
+  const pps = pxPerSec();
+  $('zoomVal').textContent = `${pps}px/秒`;
+  const cs = getComputedStyle(document.documentElement);
+  const color = (n) => cs.getPropertyValue(n).trim();
+  const minW = $('scroller').clientWidth;
+  const w = Math.max(minW, Math.ceil(state.duration * pps)), h = 120, dpr = devicePixelRatio || 1;
+  // 1キャンバスの上限を超えないようにする
+  const scale = Math.min(dpr, 32000 / w);
+  canvas.width = Math.floor(w * scale); canvas.height = h * scale;
+  canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  const sx = w / state.duration;
+  for (const c of state.cuts) {
+    ctx.fillStyle = c.enabled ? color(c.type === 'silence' ? '--silence' : '--filler') : color('--off');
+    ctx.fillRect(c.start * sx, c.type === 'filler' ? 0 : 14, Math.max(1, (c.end - c.start) * sx), h - 14);
+  }
+  // 音量の波形
+  ctx.fillStyle = color('--wave');
+  const db = state.db, mid = h / 2 + 7;
+  const perPx = db.length / w;
+  for (let x = 0; x < w; x++) {
+    let m = -100;
+    const a = Math.floor(x * perPx), b = Math.max(a + 1, Math.floor((x + 1) * perPx));
+    for (let i = a; i < b && i < db.length; i++) if (db[i] > m) m = db[i];
+    const amp = Math.max(0, (m + 70) / 70) * (h / 2 - 12);
+    ctx.fillRect(x, mid - amp, 1, amp * 2 || 1);
+  }
+  // 閾値ライン
+  const thAmp = Math.max(0, (+$('th').value + 70) / 70) * (h / 2 - 12);
+  ctx.strokeStyle = color('--silence-solid'); ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, mid - thAmp); ctx.lineTo(w, mid - thAmp); ctx.stroke(); ctx.setLineDash([]);
+  // 時間目盛り
+  ctx.fillStyle = color('--muted'); ctx.font = '10px sans-serif';
+  const tick = pps >= 60 ? 1 : pps >= 15 ? 5 : pps >= 6 ? 10 : 30;
+  for (let t = 0; t <= state.duration; t += tick) ctx.fillText(fmtTime(t, true), t * sx + 2, 10);
+  // 再生位置
+  const ph = $('video').currentTime * sx;
+  ctx.fillStyle = color('--head'); ctx.fillRect(ph - 0.5, 0, 1.5, h);
+}
+canvas.onclick = (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const t = (e.clientX - rect.left) / rect.width * state.duration;
+  const hit = state.cuts.find((c) => t >= c.start && t <= c.end && (c.type === 'filler' || e.clientY - rect.top > 14));
+  if (hit) toggleCut(hit); else $('video').currentTime = t;
+};
+window.onresize = () => state.db && drawTimeline();
+
+// ---------- プレビュー（カット部分を飛ばして再生） ----------
+const video = $('video');
+$('previewBtn').onclick = () => { $('skipToggle').checked = true; video.currentTime = 0; video.play(); };
+function tick() {
+  if (state.merged && $('skipToggle').checked && !video.paused) {
+    const t = video.currentTime;
+    const hit = state.merged.find(([s, e]) => t >= s && t < e - 0.01);
+    if (hit) video.currentTime = hit[1];
+  }
+  if (state.db) {
+    drawPlayhead();
+  }
+  requestAnimationFrame(tick);
+}
+let lastHead = -1;
+function drawPlayhead() {
+  const t = video.currentTime;
+  if (Math.abs(t - lastHead) < 0.03) return;
+  lastHead = t;
+  drawTimeline();
+  const sc = $('scroller'), x = t / state.duration * canvas.clientWidth;
+  if (!video.paused && (x < sc.scrollLeft || x > sc.scrollLeft + sc.clientWidth - 40)) sc.scrollLeft = x - 40;
+}
+requestAnimationFrame(tick);
+
+// ---------- 書き出し ----------
+$('csvBtn').onclick = () => {
+  const lines = [['番号', '開始(秒)', '終了(秒)', '長さ(秒)', '開始', '終了', '種類', '内容', 'カットする']];
+  state.cuts.forEach((c, i) => lines.push([i + 1, c.start.toFixed(3), c.end.toFixed(3), (c.end - c.start).toFixed(3),
+    fmtTime(c.start), fmtTime(c.end), c.type === 'silence' ? '無音' : 'フィラー', c.text, c.enabled ? 'はい' : 'いいえ']));
+  const csv = '﻿' + lines.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  download(new Blob([csv], { type: 'text/csv' }), baseName() + '_カット一覧.csv');
+};
+
+$('exportBtn').onclick = async () => {
+  const btn = $('exportBtn'), status = $('exportStatus'), prog = $('exportProg');
+  btn.disabled = true; prog.classList.remove('hidden'); prog.value = 0;
+  try {
+    const blob = await exportCut((p) => { prog.value = p; status.textContent = `書き出し中… ${Math.round(p * 100)}%`; });
+    const ext = state.videoTrack ? 'mp4' : 'm4a';
+    download(blob, `${baseName()}_カット済み.${ext}`);
+    status.textContent = `完了しました（${(blob.size / 1e6).toFixed(1)} MB）。ダウンロードフォルダを確認してください。`;
+  } catch (err) {
+    console.error(err);
+    status.textContent = '書き出しに失敗しました：' + err.message;
+  } finally {
+    btn.disabled = false; prog.classList.add('hidden');
+  }
+};
+
+async function exportCut(onProgress) {
+  const keeps = state.keeps;
+  const totalKeep = keeps.reduce((a, [s, e]) => a + (e - s), 0);
+  const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target: new BufferTarget() });
+
+  let videoSource = null, vsink = null;
+  if (state.videoTrack) {
+    const vcodec = (await canEncodeVideo('avc')) ? 'avc' : (await canEncodeVideo('hevc')) ? 'hevc' : null;
+    if (!vcodec) throw new Error('このブラウザは動画のエンコードに対応していません（Chromeをお使いください）');
+    videoSource = new VideoSampleSource({ codec: vcodec, bitrate: QUALITY_HIGH });
+    output.addVideoTrack(videoSource, { rotation: await state.videoTrack.getRotation() });
+    vsink = new VideoSampleSink(state.videoTrack);
+  }
+  if (!(await canEncodeAudio('aac'))) throw new Error('このブラウザはAAC音声のエンコードに対応していません（Chromeをお使いください）');
+  const audioSource = new AudioSampleSource({ codec: 'aac', bitrate: QUALITY_HIGH });
+  output.addAudioTrack(audioSource);
+  const asink = new AudioSampleSink(state.audioTrack);
+  await output.start();
+
+  let vDone = 0, aDone = 0;
+  const report = () => onProgress(Math.min(vsink ? Math.min(vDone, aDone) : aDone, totalKeep) / totalKeep);
+
+  const videoLoop = async () => {
+    let outOffset = 0, lastTs = -1;
+    for (const [s, e] of keeps) {
+      for await (const sample of vsink.samples(s, e)) {
+        const ts = outOffset + Math.max(0, sample.timestamp - s);
+        if (ts <= lastTs + 1e-4) { sample.close(); continue; }
+        lastTs = ts;
+        sample.setTimestamp(ts);
+        await videoSource.add(sample);
+        sample.close();
+        vDone = ts; report();
+      }
+      outOffset += e - s;
+    }
+  };
+
+  const audioLoop = async () => {
+    let written = 0;  // 出力済みフレーム数（タイムスタンプを連続させる）
+    let sr = 0;
+    for (const [s, e] of keeps) {
+      const segFrames = [];
+      for await (const sample of asink.samples(s, e)) {
+        sr = sample.sampleRate;
+        const ch = sample.numberOfChannels, n = sample.numberOfFrames;
+        const a = Math.max(0, Math.round((s - sample.timestamp) * sr));
+        const b = Math.min(n, Math.round((e - sample.timestamp) * sr));
+        if (b > a) {
+          const planes = [];
+          for (let c = 0; c < ch; c++) {
+            const buf = new Float32Array(b - a);
+            sample.copyTo(buf, { planeIndex: c, format: 'f32-planar', frameOffset: a, frameCount: b - a });
+            planes.push(buf);
+          }
+          segFrames.push(planes);
+        }
+        sample.close();
+      }
+      if (!segFrames.length) continue;
+      // 区間の頭と終わりに短いフェードをかけてプチノイズを防ぐ
+      const ch = segFrames[0].length;
+      const len = segFrames.reduce((x, p) => x + p[0].length, 0);
+      const fade = Math.min(Math.round(FADE * sr), Math.floor(len / 2));
+      const data = new Float32Array(len * ch);
+      for (let c = 0; c < ch; c++) {
+        let off = 0;
+        for (const p of segFrames) { data.set(p[c], c * len + off); off += p[c].length; }
+        for (let i = 0; i < fade; i++) {
+          const g = i / fade;
+          data[c * len + i] *= g;
+          data[c * len + len - 1 - i] *= g;
+        }
+      }
+      const out = new AudioSample({ data, format: 'f32-planar', numberOfChannels: ch, sampleRate: sr, timestamp: written / sr });
+      await audioSource.add(out);
+      out.close();
+      written += len;
+      aDone = written / sr; report();
+    }
+  };
+
+  await Promise.all([vsink ? videoLoop() : Promise.resolve(), audioLoop()]);
+  await output.finalize();
+  return new Blob([output.target.buffer], { type: state.videoTrack ? 'video/mp4' : 'audio/mp4' });
+}
+
+// ---------- ユーティリティ ----------
+function download(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+function baseName() { return state.file.name.replace(/\.[^.]+$/, ''); }
+function fmtTime(t, short) {
+  const m = Math.floor(t / 60), s = t - m * 60;
+  return short ? `${m}:${String(Math.floor(s)).padStart(2, '0')}` : `${m}:${s.toFixed(2).padStart(5, '0')}`;
+}
+function fmtDur(t) { const m = Math.floor(t / 60), s = Math.round(t - m * 60); return m ? `${m}分${s}秒` : `${s}秒`; }
+function escapeHtml(s) { return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+</script>
+</body>
+</html>
